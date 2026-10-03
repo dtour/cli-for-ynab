@@ -151,7 +151,7 @@ its currency. Amounts from different budgets/currencies are never combined.
 
 ## Complete API access
 
-Version 0.2.0 covers all **44 operations** in the pinned `ynab==4.4.0` SDK:
+Version 0.2.1 covers all **44 operations** in the pinned `ynab==4.4.0` SDK:
 28 reads and 16 writes across 10 API classes. A coverage test compares the
 registered operations with the installed SDK, so upgrades expose any gaps.
 
@@ -229,6 +229,10 @@ proposals:
 ynab changes apply new-payee.json --approve FULL_PROPOSAL_ID
 ```
 
+YNAB's built-in payees ("Starting Balance", "Manual Balance Adjustment" and
+"Reconciliation Balance Adjustment") are rejected by YNAB as `payee_name`, so the CLI
+refuses them while building the proposal (`reserved_payee`); use an ordinary payee name.
+
 Updates and deletions snapshot their existing records and reject stale proposals
 before writing. Creations have no existing record to snapshot. An import proposal
 authorizes requesting the pending imports from linked accounts; the API cannot
@@ -247,7 +251,8 @@ API proposals use schema version 2; existing allocation/target proposals remain
 version 1. API proposals are attempted at most once per local configuration
 directory. An owner-only receipt is written before sending; duplicate attempts,
 including concurrent attempts, return `already_attempted`. After a failed or
-uncertain attempt, inspect YNAB and obtain approval for a fresh proposal.
+uncertain attempt, inspect YNAB and obtain approval for a fresh proposal. A rejected
+write reports YNAB's own explanation in `error.details.reason` (tokens redacted).
 Receipts live in the configuration directory's `changes/` subfolder and contain
 status metadata, not request bodies or tokens. This is a local replay guard;
 another computer or configuration directory has separate receipts. The digest

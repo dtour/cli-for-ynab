@@ -147,3 +147,33 @@ def test_loan_target_rejects_unsupported_frequency(fake):
             fake, BUDGET, GROCERIES, {"goal_target": 300000, "goal_frequency": "monthly"}
         )
     assert error.value.code == "unsupported_target"
+
+
+def test_categorization_rejection_reason_is_visible(fake, monkeypatch):
+    rejection = CliError("api_error", "Category is not valid for this transaction.", 1, 400)
+    monkeypatch.setattr(fake, "categorize", lambda *args: (_ for _ in ()).throw(rejection))
+    with pytest.raises(CliError) as error:
+        operations.categorize(
+            fake, BUDGET, [{"id": "tx-1", "category_id": GROCERIES}], dry_run=False
+        )
+    assert error.value.message == "Category is not valid for this transaction."
+    assert error.value.status == 400
+
+
+@pytest.mark.parametrize("kind", ["allocate", "target"])
+def test_apply_incomplete_shows_why_ynab_rejected_the_write(fake, monkeypatch, kind):
+    if kind == "allocate":
+        plan = make_move(fake)
+    else:
+        op = operations.target(fake, BUDGET, GROCERIES, {"goal_target": 300000})
+        plan = operations.proposal(fake, BUDGET, [op])
+    rejection = CliError("api_error", "Goal target is not allowed", 1, 400)
+    monkeypatch.setattr(fake, kind, lambda *args: (_ for _ in ()).throw(rejection))
+    with pytest.raises(CliError) as error:
+        operations.apply(fake, plan, plan.id)
+    assert error.value.code == "apply_incomplete"
+    assert error.value.status == 400
+    assert error.value.details["cause"] == "api_error"
+    assert error.value.details["reason"] == "Goal target is not allowed"
+    assert error.value.details["outcome_uncertain"] is False
+    assert error.value.message.startswith("Apply stopped: Goal target is not allowed. ")

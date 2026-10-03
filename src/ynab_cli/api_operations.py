@@ -13,7 +13,7 @@ from ynab_cli import operations
 from ynab_cli.api_registry import endpoint
 from ynab_cli.client import Client
 from ynab_cli.config import config_path
-from ynab_cli.errors import CliError
+from ynab_cli.errors import CliError, reason_sentence
 
 
 class ApiProposal(BaseModel):
@@ -89,6 +89,37 @@ def categorize(
     return {**review, "status": "preview" if dry_run else "applied", "result": result}
 
 
+# YNAB's built-in payees. It rejects them as payee_name (HTTP 400), and a rejected
+# proposal is spent, so refuse them while the proposal is still being built.
+RESERVED_PAYEES = {
+    name.casefold(): name
+    for name in (
+        "Starting Balance",
+        "Manual Balance Adjustment",
+        "Reconciliation Balance Adjustment",
+    )
+}
+
+
+def reject_reserved_payees(value, path: str = "body") -> None:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key == "payee_name" and isinstance(item, str):
+                reserved = RESERVED_PAYEES.get(item.strip().casefold())
+                if reserved:
+                    raise CliError(
+                        "reserved_payee",
+                        f'"{reserved}" is a built-in YNAB payee and cannot be used as payee_name. '
+                        "Use an ordinary payee name.",
+                        2,
+                        details={"payee_name": reserved, "path": f"{path}.{key}"},
+                    )
+            reject_reserved_payees(item, f"{path}.{key}")
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            reject_reserved_payees(item, f"{path}[{index}]")
+
+
 SINGLE_READS = {
     "update_transaction": ("get_transaction_by_id", "transaction"),
     "delete_transaction": ("get_transaction_by_id", "transaction"),
@@ -150,6 +181,7 @@ def preview(
     if not spec.writes:
         raise CliError("invalid_proposal", "Read operations cannot be saved as changes.", 2)
     params, body = normalize(spec.name, params, body)
+    reject_reserved_payees(body)
     if spec.name == "create_transaction":
         selected = [key for key in ("transaction", "transactions") if body.get(key) is not None]
         if len(selected) != 1 or not body[selected[0]]:
@@ -243,14 +275,22 @@ def apply(client: Client, plan: ApiProposal, approval: str) -> dict:
             "invalid_response",
             "sdk_validation_error",
         } or bool(exc.status and exc.status >= 500)
-        record.update(status="failed", cause=exc.code, outcome_uncertain=uncertain)
+        record.update(
+            status="failed", cause=exc.code, reason=exc.message, outcome_uncertain=uncertain
+        )
         finish_receipt(receipt, record)
         raise CliError(
             "api_apply_failed",
-            "API write failed. Inspect YNAB before preparing another attempt.",
+            f"API write failed: {reason_sentence(exc)} "
+            "Inspect YNAB before preparing another attempt.",
             exc.exit_code,
             exc.status,
-            {"proposal_id": plan.id, "cause": exc.code, "outcome_uncertain": uncertain},
+            {
+                "proposal_id": plan.id,
+                "cause": exc.code,
+                "reason": exc.message,
+                "outcome_uncertain": uncertain,
+            },
         ) from exc
     record["status"] = "succeeded"
     saved = finish_receipt(receipt, record)

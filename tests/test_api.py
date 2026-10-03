@@ -606,3 +606,143 @@ def test_read_dry_run_needs_no_credentials():
     )
     assert result.exit_code == 0, result.exception
     assert json.loads(result.stdout)["meta"]["status"] == "validated"
+
+
+@pytest.fixture
+def ynab_rejects(api_fake, monkeypatch):
+    """Send writes through the real SDK client to a synthetic YNAB HTTP 400."""
+    real = Client("synthetic-token")
+    body = json.dumps(
+        {
+            "error": {
+                "id": "400",
+                "name": "bad_request",
+                "detail": "Payee is not allowed synthetic-token Bearer abc123",
+            }
+        }
+    )
+    monkeypatch.setattr(
+        real._api.rest_client, "request", Mock(side_effect=ApiException(status=400, body=body))
+    )
+    monkeypatch.setattr(api_fake, "invoke", real.invoke)
+    yield real
+    real.close()
+
+
+def test_rejected_write_shows_ynab_reason_with_token_redacted(api_fake, ynab_rejects, tmp_path):
+    path = tmp_path / "proposal.json"
+    saved = CliRunner().invoke(
+        cli.app,
+        ["--budget", "main", "api", "call", "create_transaction", "--save", str(path)]
+        + ["--data", json.dumps(BODIES["create_transaction"])],
+    )
+    assert saved.exit_code == 0, saved.exception
+    plan = api_operations.load_proposal(json.loads(path.read_text()))
+    result = CliRunner().invoke(cli.app, ["changes", "apply", str(path), "--approve", plan.id])
+    assert result.exit_code == 1
+    error = json.loads(result.stderr)["error"]
+    assert error["code"] == "api_apply_failed"
+    assert error["http_status"] == 400
+    reason = "Payee is not allowed [REDACTED] Bearer [REDACTED]"
+    assert error["details"]["reason"] == reason
+    assert error["details"]["cause"] == "api_error"
+    assert error["details"]["outcome_uncertain"] is False
+    assert reason in error["message"]
+    assert "synthetic-token" not in result.stderr and "abc123" not in result.stderr
+    receipt = json.loads((config_path().parent / "changes" / f"{plan.id}.json").read_text())
+    assert receipt["status"] == "failed" and receipt["reason"] == reason
+    assert "synthetic-token" not in json.dumps(receipt)
+
+
+def test_uncertain_write_failure_keeps_its_own_message_as_reason(api_fake, monkeypatch):
+    plan = api_operations.preview(api_fake, "import_transactions", BUDGET, {}, None)
+    failure = CliError("network_error", "YNAB could not be reached reliably", 5)
+    monkeypatch.setattr(api_fake, "invoke", Mock(side_effect=failure))
+    with pytest.raises(CliError) as error:
+        api_operations.apply(api_fake, plan, plan.id)
+    assert error.value.exit_code == 5
+    assert error.value.details["reason"] == "YNAB could not be reached reliably"
+    assert "reliably. Inspect YNAB" in error.value.message
+
+
+RESERVED = ["Starting Balance", "Manual Balance Adjustment", "Reconciliation Balance Adjustment"]
+PAYEE_BODIES = {
+    "create": ("create_transaction", lambda n: {"transaction": {**TX, "payee_name": n}}),
+    "create-bulk": (
+        "create_transaction",
+        lambda n: {"transactions": [TX, {**TX, "payee_name": n}]},
+    ),
+    "create-split": (
+        "create_transaction",
+        lambda n: {"transaction": {**TX, "subtransactions": [{"amount": -12500, "payee_name": n}]}},
+    ),
+    "update": ("update_transaction", lambda n: {"transaction": {"payee_name": n}}),
+    "update-bulk": (
+        "update_transactions",
+        lambda n: {"transactions": [{"id": "tx-1", "memo": "ok"}, {"id": "tx-2", "payee_name": n}]},
+    ),
+    "scheduled-create": (
+        "create_scheduled_transaction",
+        lambda n: {"scheduled_transaction": {**SCHEDULED, "payee_name": n}},
+    ),
+    "scheduled-update": (
+        "update_scheduled_transaction",
+        lambda n: {"scheduled_transaction": {**SCHEDULED, "payee_name": n}},
+    ),
+}
+
+
+@pytest.mark.parametrize("case", PAYEE_BODIES)
+@pytest.mark.parametrize(
+    ("typed", "canonical"),
+    [
+        ("Reconciliation Balance Adjustment", "Reconciliation Balance Adjustment"),
+        ("  reconciliation BALANCE adjustment\t", "Reconciliation Balance Adjustment"),
+        ("STARTING BALANCE", "Starting Balance"),
+        ("manual balance adjustment ", "Manual Balance Adjustment"),
+    ],
+)
+def test_builtin_payees_are_refused_before_any_request(case, typed, canonical, api_fake, tmp_path):
+    operation, build = PAYEE_BODIES[case]
+    path = tmp_path / "proposal.json"
+    result = CliRunner().invoke(
+        cli.app,
+        ["--budget", "main", "api", "call", operation, "--save", str(path)]
+        + ["--params", json.dumps(params_for(operation)), "--data", json.dumps(build(typed))],
+    )
+    assert result.exit_code == 2
+    error = json.loads(result.stderr)["error"]
+    assert error["code"] == "reserved_payee"
+    assert error["details"]["payee_name"] == canonical
+    assert f'"{canonical}" is a built-in YNAB payee' in error["message"]
+    assert "ordinary payee name" in error["message"]
+    assert not path.exists()
+    assert not api_fake.reads and not api_fake.writes
+
+
+def test_refusal_points_at_the_offending_bulk_row(api_fake):
+    operation, build = PAYEE_BODIES["create-bulk"]
+    with pytest.raises(CliError) as error:
+        api_operations.preview(api_fake, operation, BUDGET, {}, build(RESERVED[0]))
+    assert error.value.details["path"] == "body.transactions[1].payee_name"
+
+
+def test_builtin_payee_is_refused_without_save_too(api_fake):
+    operation, build = PAYEE_BODIES["create"]
+    result = CliRunner().invoke(
+        cli.app,
+        ["--budget", "main", "api", "call", operation, "--data", json.dumps(build(RESERVED[2]))],
+    )
+    assert result.exit_code == 2
+    assert json.loads(result.stderr)["error"]["code"] == "reserved_payee"
+    assert not api_fake.reads and not api_fake.writes
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["Bank balance catch-up", "Starting Balance Co", "Reconciliation Balance", None],
+)
+def test_ordinary_payee_names_still_preview(name, api_fake):
+    body = {"transaction": {**TX, "payee_name": name}}
+    plan = api_operations.preview(api_fake, "create_transaction", BUDGET, {}, body)
+    assert plan.body["transaction"]["payee_name"] == name

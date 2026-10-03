@@ -44,6 +44,11 @@ requires approval. `--save FILE` saves a proposal; `changes apply` handles both
 API and convenience proposals. Imports authorize the import action, whose pending
 records cannot be individually previewed through the API.
 
+YNAB's explanation for a rejected write is in `error.details.reason`; read it before
+preparing another attempt. Never use YNAB's built-in payees ("Starting Balance",
+"Manual Balance Adjustment", "Reconciliation Balance Adjustment") as `payee_name`;
+YNAB rejects them and the CLI refuses them at preview. Use an ordinary payee name.
+
 After `api_apply_failed` or `already_attempted`, inspect current YNAB state.
 Do not bypass the local attempt receipt by changing configuration directories or
 rewriting the proposal. A new attempt needs a new preview and approval. Existing

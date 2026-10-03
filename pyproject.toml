@@ -1,6 +1,6 @@
 [project]
 name = "cli-for-ynab"
-version = "0.2.0"
+version = "0.2.1"
 description = "A predictable JSON CLI for YNAB, built for people and agents"
 license = "MIT"
 license-files = ["LICENSE"]

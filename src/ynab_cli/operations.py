@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 from ynab_cli.client import Client
 from ynab_cli.dates import parse_date
-from ynab_cli.errors import CliError
+from ynab_cli.errors import CliError, reason_sentence
 
 TARGET_FIELDS = (
     "goal_type",
@@ -272,7 +272,7 @@ def apply(client: Client, plan: Proposal, approval: str) -> dict:
         except CliError as exc:
             raise CliError(
                 "apply_incomplete",
-                "Apply stopped. "
+                f"Apply stopped: {reason_sentence(exc)} "
                 "Review completed operations and current YNAB state before continuing.",
                 exc.exit_code,
                 exc.status,
@@ -282,6 +282,7 @@ def apply(client: Client, plan: Proposal, approval: str) -> dict:
                     "already_at_requested_value": skipped,
                     "failed_operation": index,
                     "cause": exc.code,
+                    "reason": exc.message,
                     "outcome_uncertain": exc.code
                     in {"network_error", "invalid_response", "sdk_validation_error"}
                     or bool(exc.status and exc.status >= 500),

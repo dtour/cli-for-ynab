@@ -19,3 +19,9 @@ class CliError(Exception):
         if self.details is not None:
             result["details"] = self.details
         return {"error": result}
+
+
+def reason_sentence(cause: CliError) -> str:
+    """The cause's sanitised message as a sentence, for embedding in a wrapper error."""
+    text = cause.message.strip()
+    return text if text.endswith((".", "!", "?")) else f"{text}."
