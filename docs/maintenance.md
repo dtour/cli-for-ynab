@@ -14,6 +14,7 @@
 | `docs/agents.md` | Guide bundled into `ynab guide` |
 | `uv.lock` | Exact development and runtime dependency versions |
 | `scripts/release_assets.py` | Build versioned assets and the Homebrew formula |
+| `.github/workflows/check.yml` | Shared lint, test, and build matrix for CI and releases |
 | `dtour/homebrew-tools` | Published formula and Homebrew install tests |
 
 The installed Homebrew copy is separate from a source checkout. Editing source
@@ -46,8 +47,9 @@ that pin deliberately after reviewing its API changes. The catalog test detects
 SDK methods that need adding or updating. For a new SDK operation, update the
 catalog, policy, test coverage, README, and Homebrew operation-count check.
 
-Review pinned GitHub Actions and uv versions when updating dependencies. Both
-workflows use the same versions. Review GitHub dependency alerts as they appear.
+Review pinned GitHub Actions and uv versions when updating dependencies. The shared
+checks and release job use the same versions. Review GitHub dependency alerts as
+they appear.
 The project does not automatically merge updates or publish on every commit.
 
 ## Release
@@ -63,9 +65,13 @@ The project does not automatically merge updates or publish on every commit.
    git push origin vVERSION
    ```
 
-4. The Release workflow publishes the wheel, source archive, `cli-for-ynab.rb`,
-   and `SHA256SUMS` to GitHub Releases. Never replace assets for an existing
-   version; fix mistakes in a new version.
+4. The Release workflow runs the shared Linux/macOS and Python 3.12/3.14 matrix
+   on the tagged commit. Publishing waits for all four combinations to pass lint,
+   tests, and builds. Failed or cancelled checks prevent publication. Tag pushes
+   run this matrix in Release only; branch pushes and pull requests run it in CI.
+   It then publishes the wheel, source archive, `cli-for-ynab.rb`, and `SHA256SUMS`
+   to GitHub Releases. Never replace assets for an existing version; fix mistakes
+   in a new version.
 5. Update the tap from the published formula, after checking the release assets:
 
    ```sh

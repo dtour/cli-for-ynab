@@ -8,7 +8,10 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 jobs:
+  check:
+    uses: ./.github/workflows/check.yml
   publish:
+    needs: check
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -19,9 +22,6 @@ jobs:
           version: "0.12.22"
           python-version: "3.12"
       - run: uv sync --locked --no-editable
-      - run: uv run ruff check .
-      - run: uv run ruff format --check .
-      - run: uv run pytest
       - name: Build release assets
         env:
           RELEASE_TAG: ${{ github.ref_name }}
