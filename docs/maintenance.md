@@ -15,6 +15,7 @@
 | `uv.lock` | Exact development and runtime dependency versions |
 | `scripts/release_assets.py` | Build versioned assets and the Homebrew formula |
 | `.github/workflows/check.yml` | Shared lint, test, and build matrix for CI and releases |
+| `.github/dependabot.yml` | Weekly dependency and GitHub Actions update proposals |
 | `dtour/homebrew-tools` | Published formula and Homebrew install tests |
 
 The installed Homebrew copy is separate from a source checkout. Editing source
@@ -51,6 +52,18 @@ Review pinned GitHub Actions and uv versions when updating dependencies. The sha
 checks and release job use the same versions. Review GitHub dependency alerts as
 they appear.
 The project does not automatically merge updates or publish on every commit.
+
+Dependabot checks Python dependencies and GitHub Actions weekly, with at most two
+open version-update PRs per ecosystem. Minor and patch updates are grouped; YNAB
+SDK updates and major upgrades get separate PRs for deliberate review. Security
+fix PRs are enabled in the repository settings and do not wait for the weekly
+version-update schedule. Merge updates manually after CI passes; changes to
+dependencies reach Homebrew users through the normal release and tap update steps.
+
+The `main` branch requires a pull request and all four CI matrix checks, with the
+branch up to date before merging. These checks also apply to administrators. No
+additional approving reviewer is required for this solo project. Secret scanning
+and push protection are enabled in the repository settings.
 
 ## Release
 
