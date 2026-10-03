@@ -1,0 +1,15 @@
+- Develop with `uv sync --locked`; run commands with `uv run ynab`.
+- Before committing: `uv run ruff check .`, `uv run ruff format --check .`, `uv run pytest`.
+- If macOS marks editable-install `.pth` files hidden, use `uv run --no-editable --reinstall-package cli-for-ynab pytest`; subsequent commands can use `uv run --no-sync`. Homebrew wheel installs are unaffected.
+- Author commits as `dtour <dhiraj.tourani@gmail.com>`.
+- Keep SDK calls in `client.py`, business operations outside CLI parsing, and JSON serialization centralized.
+- Register all SDK operations in `api_registry.py`; derive input schemas from the SDK and keep the coverage test exhaustive. API write policy and receipts live in `api_operations.py`.
+- API bodies use wire field names and integer milliunits. Preserve explicit nulls and omitted fields via `ExactApiClient`.
+- Typer 0.27 vendors Click. Its exception types come from `typer._click`; the Typer minor version is bounded and CLI error tests cover the integration.
+- Never log credentials or use personal YNAB data in test fixtures.
+- Represent API amounts as integer milliunits. Parse currency input with Decimal, never float.
+- Preserve the distinction between omitted fields and explicit nulls in updates.
+- Never retry a write automatically or implement split updates by deleting and recreating records.
+- Tests must isolate Keychain, configuration, and network access. Live account tests require explicit authorization.
+- Product documentation belongs in README.md.
+- Release and dependency update instructions live in `docs/maintenance.md`. Keep the version in `pyproject.toml` and `src/ynab_cli/__init__.py` aligned.
